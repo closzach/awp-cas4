@@ -123,33 +123,6 @@ FastAPI lit et met en cache le Parquet au premier appel ; le modèle est entraî
 au premier appel à `/scenario`. Streamlit met en cache les réponses HTTP pour éviter de redemander
 les mêmes données à chaque rafraîchissement.
 
-## Présentation et répartition à trois
-
-Déroulé possible pour une démonstration de 5 minutes :
-
-1. **Membre 1 (1 min)** — décision métier, source, filtres communs et trois indicateurs.
-2. **Membre 2 (2 min)** — carte, classement par commune, choix d'une commune pour afficher
-   ses accidents et classement des trois créneaux.
-3. **Membre 3 (2 min)** — comparaison météo, nuit/jour et routes, puis scénario ML et test temporel.
-
-Puis répondez ensemble aux questions. Chaque membre doit pouvoir expliquer le filtre, une
-agrégation et la différence entre le score ML et un risque réel. Pour préparer l'oral :
-
-- **Pourquoi Streamlit ?** Le cours le couvre et il convient à un tableau de bord Python.
-  Streamlit gère l'interface et les filtres ; FastAPI centralise les données, agrégations et
-  prédictions derrière des routes HTTP.
-- **Pourquoi une forêt aléatoire ?** Elle capte des relations non linéaires entre l'heure,
-  la localisation, la météo et le type de route ; la comparaison hors année vérifie son
-  classement sur une période future.
-- **Pourquoi ne pas prédire le nombre d'accidents ?** Le fichier ne contient que les accidents
-  corporels observés, pas le trafic exposé. On peut comparer des historiques ou des scénarios,
-  pas prédire le risque de circulation ni l'effet d'un contrôle.
-- **Que signifie l'AUC ?** La capacité à classer un cas grave devant un cas non grave ; 0,5
-  correspond au hasard. Ce n'est pas une garantie de calibration ni une mesure de causalité.
-- **Que faudrait-il ajouter pour décider réellement des contrôles ?** Comptages de trafic,
-  accidents non corporels, exposition horaire et géographique, localisation plus précise,
-  coûts et résultats des contrôles.
-
 ## Déploiement sur un VPS Linux
 
 ### Commandes de lancement
