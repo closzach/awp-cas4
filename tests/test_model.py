@@ -20,4 +20,7 @@ def test_model_excludes_outcomes_and_evaluates_on_latest_year() -> None:
     assert metrics["annee_test"] == 2025
     assert metrics["n_test"] == 413
     assert metrics["auc"] > 0.6
+    importances = metrics["importance_variables"]
+    assert {item["parametre"] for item in importances} == set(MODEL_FEATURES)
+    assert all(pd.notna(item["importance_moyenne"]) for item in importances)
     assert 0 <= model.predict_proba(features.iloc[[0]])[0, 1] <= 1

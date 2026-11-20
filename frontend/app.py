@@ -541,6 +541,50 @@ def render_scenario(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
         "Le modèle final est ensuite réentraîné sur toutes les années disponibles."
         .replace(",", " ")
     )
+    importance_labels = {
+        "mois": "Mois",
+        "heure": "Heure",
+        "jour_semaine": "Jour de la semaine",
+        "lat": "Latitude",
+        "long": "Longitude",
+        "vma": "Vitesse maximale affichée",
+        "lum_libelle": "Luminosité",
+        "atm_libelle": "Météo",
+        "catr_libelle": "Type de route",
+    }
+    importance = pd.DataFrame(metrics["importance_variables"])
+    importance["parametre"] = importance["parametre"].map(importance_labels)
+    importance = importance.sort_values("importance_moyenne")
+    importance_figure = px.bar(
+        importance,
+        x="importance_moyenne",
+        y="parametre",
+        orientation="h",
+        error_x="ecart_type",
+        color="importance_moyenne",
+        color_continuous_scale=["#76a9fa", COLORS["teal"]],
+        title=f"Variables les plus utiles au classement · test {metrics['annee_test']}",
+        labels={
+            "importance_moyenne": "Baisse moyenne de l'AUC",
+            "parametre": "",
+            "ecart_type": "Écart-type",
+        },
+    )
+    importance_figure.update_layout(
+        coloraxis_showscale=False,
+        xaxis_tickformat=".1%",
+        xaxis_title="Baisse de l'AUC après permutation (points de %)",
+    )
+    plotly_layout(importance_figure, height=390)
+    st.plotly_chart(
+        importance_figure, width="stretch", config={"displayModeBar": False}
+    )
+    st.caption(
+        "Importance par permutation mesurée sur l'année de test : plus la baisse moyenne "
+        "de l'AUC est grande, plus le modèle s'appuie sur ce paramètre pour classer les cas "
+        "graves. Les variables corrélées peuvent se partager cette importance ; ce classement "
+        "ne révèle pas de cause et ne mesure pas un effet causal."
+    )
 
 
 def main() -> None:
