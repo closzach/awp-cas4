@@ -1,27 +1,28 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
+from dotenv import load_dotenv
 
-from data import (
-    DAY_NAMES,
-    category_summary,
-    filter_accidents,
-    lighting_period_summary,
-    municipality_summary,
-    prepare_accidents,
-    summarize_accidents,
-    top_control_slots,
-    weekday_hour_summary,
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / ".env")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+DAY_NAMES = (
+    "Lundi",
+    "Mardi",
+    "Mercredi",
+    "Jeudi",
+    "Vendredi",
+    "Samedi",
+    "Dimanche",
 )
-from model import score_scenario, train_and_evaluate
-
-ROOT = Path(__file__).parent
-DATA_PATH = ROOT / "data" / "securite_routiere.parquet"
 MONTH_NAMES = [
     "Janvier",
     "Février",
@@ -44,6 +45,37 @@ COLORS = {
     "blue": "#76a9fa",
     "muted": "#a7b3c5",
 }
+
+
+def fetch_api(path: str, params: list[tuple[str, str]] | None = None) -> dict[str, Any]:
+    try:
+        response = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        st.error(
+            f"Impossible de joindre l'API FastAPI ({API_BASE_URL}). "
+            "Vérifiez que le service backend est démarré et que API_BASE_URL est correct."
+        )
+        st.stop()
+        raise RuntimeError("Requête à l'API impossible.") from exc
+    return response.json()
+
+
+def post_api(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}{path}", json=payload, timeout=120
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        st.error(
+            f"La requête vers l'API FastAPI a échoué ({API_BASE_URL}{path}). "
+            "Vérifiez le service backend et ses journaux."
+        )
+        st.stop()
+        raise RuntimeError("Requête à l'API impossible.") from exc
+    return response.json()
+
 
 st.set_page_config(
     page_title="Vigie Loiret · Sécurité routière",
@@ -103,16 +135,38 @@ st.markdown(
 )
 
 
-@st.cache_data(show_spinner="Lecture des données BAAC…")
-def load_accidents() -> pd.DataFrame:
-    if not DATA_PATH.exists():
-        raise FileNotFoundError(f"Fichier de données introuvable : {DATA_PATH}")
-    return prepare_accidents(pd.read_parquet(DATA_PATH))
+@st.cache_data(show_spinner="Chargement des filtres depuis l'API…")
+def load_options() -> dict[str, Any]:
+    return fetch_api("/options")
 
 
-@st.cache_resource(show_spinner="Évaluation du modèle sur l'année la plus récente…")
-def load_model():
-    return train_and_evaluate(load_accidents())
+@st.cache_data(show_spinner="Chargement des données depuis l'API…")
+def load_dashboard(
+    first_year: int,
+    last_year: int,
+    communes: tuple[str, ...],
+    roads: tuple[str, ...],
+) -> dict[str, Any]:
+    params = [("first_year", str(first_year)), ("last_year", str(last_year))]
+    params.extend(("communes", value) for value in communes)
+    params.extend(("road_types", value) for value in roads)
+    return fetch_api("/dashboard", params=params)
+
+
+@st.cache_data(show_spinner="Évaluation du scénario par l'API…")
+def score_remote_scenario(payload: tuple[Any, ...]) -> dict[str, Any]:
+    keys = (
+        "mois",
+        "heure",
+        "jour_semaine",
+        "lat",
+        "long",
+        "vma",
+        "lum_libelle",
+        "atm_libelle",
+        "catr_libelle",
+    )
+    return post_api("/scenario", dict(zip(keys, payload, strict=True)))
 
 
 def plotly_layout(figure: go.Figure, height: int = 390) -> go.Figure:
@@ -137,7 +191,7 @@ def plotly_layout(figure: go.Figure, height: int = 390) -> go.Figure:
     return figure
 
 
-def render_overview(data: pd.DataFrame) -> None:
+def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None:
     total = len(data)
     map_data = data.copy()
     map_data["niveau"] = map_data["grave"].map(
@@ -179,7 +233,7 @@ def render_overview(data: pd.DataFrame) -> None:
         legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
     )
 
-    cities = municipality_summary(data).head(12).sort_values("graves")
+    cities = municipality_data.head(12).sort_values("graves")
     city_title = (
         f"Les 12 communes avec le plus d'accidents graves · {total:,} accidents analysés"
         .replace(",", " ")
@@ -207,9 +261,9 @@ def render_overview(data: pd.DataFrame) -> None:
         st.plotly_chart(city_figure, width="stretch", config={"displayModeBar": False})
 
     st.markdown("#### Explorer les accidents d'une commune")
-    options = municipality_summary(data)["commune"].tolist()
-    if options:
-        selected_city = st.selectbox("Commune à détailler", options, key="detail_commune")
+    city_options = municipality_data["commune"].tolist()
+    if city_options:
+        selected_city = st.selectbox("Commune à détailler", city_options, key="detail_commune")
         details = data.loc[data["commune"] == selected_city].sort_values("date", ascending=False)
         detail_columns = {
             "date": "Date",
@@ -232,9 +286,9 @@ def render_overview(data: pd.DataFrame) -> None:
         st.info("Aucune commune ne correspond aux filtres.")
 
 
-def render_planning(data: pd.DataFrame) -> None:
+def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
     total_graves = int(data["grave"].sum())
-    slots = top_control_slots(data, limit=3)
+    slots = pd.DataFrame(dashboard["control_slots"])
     if slots.empty:
         st.info("Aucun accident grave dans cette sélection : aucun créneau ne peut être classé.")
         return
@@ -261,7 +315,7 @@ def render_planning(data: pd.DataFrame) -> None:
         st.dataframe(table, hide_index=True, width="stretch")
         st.caption(f"Somme historique : {selected_count} accident(s) grave(s) sur {total_graves}.")
 
-    weekly = weekday_hour_summary(data)
+    weekly = pd.DataFrame(dashboard["weekday_hours"])
     matrix = (
         weekly.pivot(index="jour_nom", columns="heure", values="accidents_graves")
         .reindex(index=DAY_NAMES, columns=range(24))
@@ -294,9 +348,9 @@ def render_planning(data: pd.DataFrame) -> None:
     plotly_layout(heatmap, height=380)
     st.plotly_chart(heatmap, width="stretch", config={"displayModeBar": False})
 
-    weather = category_summary(data, "atm_libelle")
-    lighting = lighting_period_summary(data)
-    roads = category_summary(data, "catr_libelle")
+    weather = pd.DataFrame(dashboard["weather"])
+    lighting = pd.DataFrame(dashboard["lighting"])
+    roads = pd.DataFrame(dashboard["roads"])
     left, right = st.columns(2, gap="large")
     for container, result, category, title, threshold in (
         (left, weather, "atm_libelle", "Part grave observée selon la météo", "n ≥ 20"),
@@ -386,7 +440,7 @@ def render_planning(data: pd.DataFrame) -> None:
     )
 
 
-def render_scenario(data: pd.DataFrame) -> None:
+def render_scenario(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None:
     st.markdown("#### Estimer un score de gravité pour un scénario")
     st.write(
         "Choisissez un contexte de circulation. Le modèle estime la part de cas graves parmi "
@@ -394,14 +448,13 @@ def render_scenario(data: pd.DataFrame) -> None:
         "accident arrive."
     )
 
-    model, metrics = load_model()
     coordinates = data.groupby("commune")[["lat", "long"]].median()
     cities = sorted(coordinates.index.tolist())
     if not cities:
         st.info("Aucune commune dans les filtres actuels.")
         return
 
-    default_city = municipality_summary(data).iloc[0]["commune"]
+    default_city = municipality_data.iloc[0]["commune"]
     col1, col2, col3 = st.columns(3)
     with col1:
         city = st.selectbox("Commune", cities, index=cities.index(default_city))
@@ -448,22 +501,21 @@ def render_scenario(data: pd.DataFrame) -> None:
             unsafe_allow_html=True,
         )
 
-    scenario = pd.DataFrame(
-        [
-            {
-                "mois": month,
-                "heure": hour,
-                "jour_semaine": weekday,
-                "lat": coordinates.loc[city, "lat"],
-                "long": coordinates.loc[city, "long"],
-                "vma": speed_limit,
-                "lum_libelle": lighting,
-                "atm_libelle": weather,
-                "catr_libelle": road,
-            }
-        ]
+    result = score_remote_scenario(
+        (
+            month,
+            hour,
+            weekday,
+            float(coordinates.loc[city, "lat"]),
+            float(coordinates.loc[city, "long"]),
+            speed_limit,
+            lighting,
+            weather,
+            road,
+        )
     )
-    score = score_scenario(model, scenario)
+    score = result["score"]
+    metrics = result["metrics"]
     st.metric(
         "Score estimé d'accident grave parmi les accidents corporels similaires",
         f"{score:.0%}",
@@ -498,22 +550,22 @@ def main() -> None:
         "<p style='color:#a7b3c5'>Choisir où et quand renforcer la prévention.</p>",
         unsafe_allow_html=True,
     )
-    accidents = load_accidents()
-    years = sorted(accidents["annee"].unique().tolist())
+    options = load_options()
+    years = options["years"]
     selected_years = st.sidebar.select_slider(
         "Période analysée",
         options=years,
         value=(years[0], years[-1]),
         format_func=str,
     )
-    communes = sorted(accidents["commune"].unique().tolist())
+    communes = options["communes"]
     selected_communes = st.sidebar.multiselect(
         "Communes",
         options=communes,
         default=[],
         placeholder="Toutes les communes",
     )
-    roads = sorted(accidents["catr_libelle"].unique().tolist())
+    roads = options["roads"]
     selected_roads = st.sidebar.multiselect(
         "Types de route",
         options=roads,
@@ -526,20 +578,21 @@ def main() -> None:
         "Chaque point représente un accident, pas un volume de trafic."
     )
 
-    filtered = filter_accidents(
-        accidents,
+    dashboard = load_dashboard(
         first_year=selected_years[0],
         last_year=selected_years[1],
-        communes=selected_communes,
-        road_types=selected_roads,
+        communes=tuple(selected_communes),
+        roads=tuple(selected_roads),
     )
+    filtered = pd.DataFrame(dashboard["records"])
     if filtered.empty:
         st.warning(
             "Aucun accident pour ces filtres. Modifiez la période, les communes ou les routes."
         )
         st.stop()
 
-    stats = summarize_accidents(filtered)
+    municipality_data = pd.DataFrame(dashboard["municipalities"])
+    stats = dashboard["summary"]
     st.markdown(
         '<div class="hero"><div class="eyebrow">Décision · service sécurité routière</div>'
         "<h1>Où et quand concentrer les contrôles ?</h1>"
@@ -560,11 +613,11 @@ def main() -> None:
         ["Explorer la carte", "Choisir les créneaux", "Simuler un scénario"]
     )
     with overview:
-        render_overview(filtered)
+        render_overview(filtered, municipality_data)
     with planning:
-        render_planning(filtered)
+        render_planning(filtered, dashboard)
     with scenario:
-        render_scenario(filtered)
+        render_scenario(filtered, municipality_data)
 
 
 if __name__ == "__main__":

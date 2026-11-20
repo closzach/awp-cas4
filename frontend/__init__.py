@@ -1,0 +1,1 @@
+"""Vigie Loiret Streamlit frontend."""

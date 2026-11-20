@@ -1,5 +1,2 @@
-streamlit>=1.49
-pandas>=2.2
-pyarrow>=18
-plotly>=5.24
-scikit-learn>=1.5
+-r requirements-backend.txt
+-r requirements-frontend.txt

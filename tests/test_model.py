@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from data import prepare_accidents
-from model import MODEL_FEATURES, build_feature_frame, train_and_evaluate
+from backend.data import prepare_accidents
+from backend.model import MODEL_FEATURES, build_feature_frame, train_and_evaluate
 
 ROOT = Path(__file__).resolve().parents[1]
 

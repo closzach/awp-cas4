@@ -1,4 +1,4 @@
-name: Déploiement automatique Streamlit
+name: Déploiement automatique VPS
 
 on:
   push:
@@ -18,8 +18,8 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
-            cd /home/debian/projet-a-retirer-de-lherbergement/awp-cas4
+            cd /opt/vigie-routiere
             git fetch origin main
             git reset --hard origin/main
-            ./venv/bin/pip install --upgrade -r requirements.txt
-            sudo systemctl restart streamlit
+            ./.venv/bin/pip install --upgrade -r requirements.txt
+            sudo systemctl restart vigie-backend vigie-frontend

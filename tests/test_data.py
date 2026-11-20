@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data import (
+from backend.data import (
     filter_accidents,
     lighting_period_summary,
     prepare_accidents,
