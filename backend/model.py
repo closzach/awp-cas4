@@ -19,7 +19,7 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-from data import display_label
+from backend.data import display_label
 
 NUMERIC_FEATURES = ["mois", "heure", "jour_semaine", "lat", "long", "vma"]
 CATEGORICAL_FEATURES = ["lum_libelle", "atm_libelle", "catr_libelle"]

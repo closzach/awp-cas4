@@ -31,23 +31,33 @@ des estimations de l'effet d'un contrôle.
 
 ## Démarrer en local
 
-Python 3.12 est recommandé pour être cohérent avec le déploiement Streamlit du cours.
+Python 3.12 est recommandé. Depuis la racine du dépôt :
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-dev.txt
-streamlit run app.py
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+cp .env.example .env
 ```
 
-Le navigateur s'ouvre sur `http://localhost:8501`. Les filtres de période, commune et type de
-route se trouvent dans la barre latérale et s'appliquent aux graphiques et indicateurs.
+Dans deux terminaux, toujours depuis la racine du dépôt :
+
+```bash
+.venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8000
+```
+
+```bash
+.venv/bin/streamlit run frontend/app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+L'interface est disponible à `http://127.0.0.1:8501`. FastAPI expose également sa
+documentation interactive à `http://127.0.0.1:8000/docs`. Streamlit communique avec FastAPI
+par HTTP ; il ne charge plus directement le fichier Parquet ni le modèle.
 
 ## Tester et vérifier le style
 
-```powershell
-python -m pytest
-python -m ruff check .
+```bash
+.venv/bin/python -m pytest
+.venv/bin/python -m ruff check .
 ```
 
 ## Données et précautions
@@ -92,14 +102,18 @@ séparation évite de présenter une association observée comme une prédiction
 
 ## Architecture
 
-- `app.py` : interface Streamlit, interactions, filtres et graphiques.
-- `data.py` : validation, préparation et agrégations métier, séparées de l'affichage.
-- `model.py` : variables préalables à l'accident, pipeline sklearn, test temporel et score.
+- `backend/api.py` : API FastAPI (`/health`, `/options`, `/dashboard`, `/scenario`).
+- `backend/data.py` : validation, préparation et agrégations métier.
+- `backend/model.py` : variables préalables à l'accident, pipeline sklearn, test temporel et score.
+- `frontend/app.py` : interface Streamlit, appels HTTP à l'API et graphiques.
 - `data/securite_routiere.parquet` : données nécessaires au fonctionnement autonome de l'appli.
 - `tests/` : tests des filtres, créneaux de contrôle, absence de fuite de cible et test temporel.
+- `requirements-backend.txt` et `requirements-frontend.txt` : dépendances séparées des deux services.
+- `.env.example` : exemple des variables de configuration ; copier en `.env` pour le lancement local.
 
-Le fichier Parquet est lu avec `st.cache_data` et le modèle entraîné avec `st.cache_resource`.
-L'évaluation se fait sur 2025 avant le réentraînement du modèle final sur tout l'historique.
+FastAPI lit et met en cache le Parquet au premier appel ; le modèle est entraîné et mis en cache
+au premier appel à `/scenario`. Streamlit met en cache les réponses HTTP pour éviter de redemander
+les mêmes données à chaque rafraîchissement.
 
 ## Présentation et répartition à trois
 
@@ -113,8 +127,9 @@ Déroulé possible pour une démonstration de 5 minutes :
 Puis répondez ensemble aux questions. Chaque membre doit pouvoir expliquer le filtre, une
 agrégation et la différence entre le score ML et un risque réel. Pour préparer l'oral :
 
-- **Pourquoi Streamlit ?** Le cours le couvre, il convient à un tableau de bord Python et permet
-  de relier filtres, graphiques et détail sans construire une API distincte.
+- **Pourquoi Streamlit ?** Le cours le couvre et il convient à un tableau de bord Python.
+  Streamlit gère l'interface et les filtres ; FastAPI centralise les données, agrégations et
+  prédictions derrière des routes HTTP.
 - **Pourquoi une forêt aléatoire ?** Elle capte des relations non linéaires entre l'heure,
   la localisation, la météo et le type de route ; la comparaison hors année vérifie son
   classement sur une période future.
@@ -127,12 +142,121 @@ agrégation et la différence entre le score ML et un risque réel. Pour prépar
   accidents non corporels, exposition horaire et géographique, localisation plus précise,
   coûts et résultats des contrôles.
 
-## Mise en ligne
+## Déploiement sur un VPS Linux
 
-Le dépôt contient `app.py`, `requirements.txt` et le Parquet pour un déploiement Streamlit
-Community Cloud. Depuis le dépôt GitHub du groupe, créez une application en sélectionnant
-`app.py`, puis choisissez Python 3.12. **L'application n'est pas publiée par cette étape** :
-ajoutez son URL au README avant la soutenance pour obtenir les points « en ligne et fonctionnelle ».
+### Commandes de lancement
+
+Depuis la racine du dépôt, après installation des dépendances, les commandes de production sont :
+
+```bash
+.venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8000
+.venv/bin/streamlit run frontend/app.py --server.address 127.0.0.1 --server.port 8501
+```
+
+FastAPI reste lié à `127.0.0.1` : seule l'application Streamlit doit être publiée derrière le
+reverse proxy HTTPS. Ne pas ouvrir le port 8000 au public. Le port 8501 est destiné au reverse
+proxy ; le domaine public doit servir Streamlit en HTTPS et autoriser les WebSockets nécessaires
+au rafraîchissement de l'interface.
+
+### Variables et fichiers à configurer
+
+Les variables lues par l'application sont :
+
+| Variable | Utilisée par | Valeur par défaut / exemple | Rôle |
+|---|---|---|---|
+| `API_BASE_URL` | Streamlit | `http://127.0.0.1:8000` | URL FastAPI joignable depuis le processus Streamlit ; utiliser l'adresse privée du backend s'ils sont sur deux machines. |
+| `BAAC_DATA_PATH` | FastAPI | `data/securite_routiere.parquet` à la racine du dépôt | Chemin du fichier Parquet sur le VPS. |
+
+En local, les valeurs se mettent dans `.env` à la racine (à créer depuis `.env.example`, non
+versionné). Sur un VPS avec systemd, stocker les valeurs de production dans un fichier dédié,
+par exemple `/etc/vigie-routiere/vigie.env`, puis le référencer avec
+`EnvironmentFile=/etc/vigie-routiere/vigie.env` dans les deux services. Le chemin du dépôt,
+l'utilisateur Linux, le nom de domaine, l'adresse API et le chemin des données sont à adapter.
+Protéger ce fichier (`root` ou utilisateur de service, permissions `0640`) et ne pas y mettre de
+secrets dans Git.
+
+### Préparation et vérification
+
+Exemple pour un dépôt installé dans `/opt/vigie-routiere` :
+
+```bash
+cd /opt/vigie-routiere
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements-backend.txt -r requirements-frontend.txt
+sudo install -d -o root -g vigie -m 0750 /etc/vigie-routiere
+sudo install -o root -g vigie -m 0640 .env.example /etc/vigie-routiere/vigie.env
+sudoedit /etc/vigie-routiere/vigie.env
+```
+
+Avant de créer les services, vérifier les deux commandes de lancement ci-dessus. Vérifier ensuite
+l'API avec `curl http://127.0.0.1:8000/health` (réponse attendue : `{"status":"ok"}`), puis
+`curl http://127.0.0.1:8000/options`. `/docs` permet d'inspecter les paramètres et le contrat des
+routes.
+
+### Services systemd
+
+Créer au préalable le compte et le groupe système `vigie`, et donner à ce compte les droits de
+lecture/traversée sur le dépôt, l'environnement virtuel et le fichier Parquet.
+
+Créer `/etc/systemd/system/vigie-backend.service` :
+
+```ini
+[Unit]
+Description=Vigie Loiret FastAPI
+After=network.target
+
+[Service]
+User=vigie
+Group=vigie
+WorkingDirectory=/opt/vigie-routiere
+EnvironmentFile=/etc/vigie-routiere/vigie.env
+ExecStart=/opt/vigie-routiere/.venv/bin/uvicorn backend.api:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Créer `/etc/systemd/system/vigie-frontend.service` avec :
+
+```ini
+[Unit]
+Description=Vigie Loiret Streamlit
+After=network.target vigie-backend.service
+Requires=vigie-backend.service
+
+[Service]
+User=vigie
+Group=vigie
+WorkingDirectory=/opt/vigie-routiere
+EnvironmentFile=/etc/vigie-routiere/vigie.env
+ExecStart=/opt/vigie-routiere/.venv/bin/streamlit run frontend/app.py --server.address 127.0.0.1 --server.port 8501
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Avec Nginx en reverse proxy local sur le même VPS, Streamlit peut écouter sur `127.0.0.1` comme
+dans l'unité ci-dessus. Après avoir configuré le proxy HTTPS vers `127.0.0.1:8501` :
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now vigie-backend vigie-frontend
+sudo systemctl status vigie-backend vigie-frontend
+sudo journalctl -u vigie-backend -u vigie-frontend -f
+```
+
+En cas d'erreur, vérifier les journaux systemd, le droit de lecture du Parquet par l'utilisateur
+`vigie`, la valeur de `BAAC_DATA_PATH`, et la connectivité vers `API_BASE_URL`. Les premiers accès
+à `/options` et `/scenario` peuvent prendre plus longtemps pendant le chargement des données et
+l'entraînement du modèle.
+
+Le workflow GitHub Actions `.github/workflows/deploy.yml` suppose également un dépôt dans
+`/opt/vigie-routiere`, un environnement `.venv`, l'accès SSH et les secrets GitHub `VPS_HOST`,
+`VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`, ainsi que les deux services systemd ci-dessus. Adapter
+son chemin si le dépôt est installé ailleurs.
 
 ## Correspondance avec le barème
 
