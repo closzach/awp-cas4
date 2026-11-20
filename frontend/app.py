@@ -41,13 +41,19 @@ MONTH_NAMES = [
 COLORS = {
     "background": "#0b1220",
     "panel": "#121d2e",
-    "teal": "#1261a0",
-    "coral": "#d7263d",
-    "blue": "#76a9fa",
+    "teal": "#0072b2",
+    "coral": "#d55e00",
+    "blue": "#56b4e9",
     "boundary": "#b45309",
     "muted": "#a7b3c5",
 }
 MAP_INITIAL_ZOOM = 6.8
+HOVER_STYLE = {
+    "bgcolor": "#102033",
+    "bordercolor": "#00a8e8",
+    "font": {"family": "Inter, sans-serif", "size": 13, "color": "#f3f6fb"},
+    "align": "left",
+}
 
 
 def fetch_api(path: str, params: list[tuple[str, str]] | None = None) -> dict[str, Any]:
@@ -138,16 +144,26 @@ st.markdown(
         display: inline-block; width: .58rem; height: .58rem;
         border-radius: 50%; box-shadow: 0 0 0 2px var(--panel);
     }
-    .map-legend-severe { background: #d7263d; }
-    .map-legend-other { background: #1261a0; }
+    .map-legend-severe { background: #d55e00; width: .75rem; height: .75rem; }
+    .map-legend-other { background: #0072b2; }
     .map-legend-line {
         display: inline-block; width: 1rem;
         border-top: 2px solid var(--map-boundary);
+    }
+    @keyframes tooltip-arrive {
+        from { opacity: 0; filter: drop-shadow(0 0 0 rgba(0, 168, 232, 0)); }
+        to { opacity: 1; filter: drop-shadow(0 0 7px rgba(0, 168, 232, .42)); }
+    }
+    .js-plotly-plot .hoverlayer .hovertext {
+        animation: tooltip-arrive .2s ease-out;
     }
     div[data-testid="stTabs"] button { font-weight: 650; }
     @media (max-width: 640px) {
         [data-testid="stMetric"] { padding: 12px; }
         .hero h1 { font-size: 1.8rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .js-plotly-plot .hoverlayer .hovertext { animation: none; }
     }
     </style>
     """,
@@ -195,18 +211,21 @@ def plotly_layout(figure: go.Figure, height: int = 390) -> go.Figure:
         margin=dict(l=12, r=12, t=48, b=14),
         paper_bgcolor=COLORS["panel"],
         plot_bgcolor=COLORS["panel"],
-        font=dict(color="#e7edf5", family="Inter, sans-serif"),
+        font=dict(color="#e7edf5", family="Inter, sans-serif", size=13),
         title=dict(font=dict(size=16)),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        hoverlabel=dict(bgcolor="#182438", font_color="#f3f6fb"),
+        hoverlabel=HOVER_STYLE,
     )
+    figure.update_traces(hoverlabel=HOVER_STYLE)
     figure.update_xaxes(
         gridcolor="rgba(167, 179, 197, .13)",
         zerolinecolor="rgba(167, 179, 197, .18)",
+        automargin=True,
     )
     figure.update_yaxes(
         gridcolor="rgba(167, 179, 197, .13)",
         zerolinecolor="rgba(167, 179, 197, .18)",
+        automargin=True,
     )
     return figure
 
@@ -251,47 +270,90 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
             boundary_lon.append(None)
             boundary_lat.append(None)
 
-    map_figure = px.scatter_map(
-        map_data,
-        lat="lat",
-        lon="long",
-        color="niveau",
-        color_discrete_map={
-            "Grave": COLORS["coral"],
-            "Sans hospitalisation ni décès": COLORS["teal"],
-        },
-        hover_name="commune",
-        custom_data=[
-            "niveau",
-            "date_affichee",
-            "heure_affichee",
-            "catr_libelle",
-            "lum_libelle",
-            "atm_libelle",
-        ],
-        zoom=MAP_INITIAL_ZOOM,
-        center=center,
-        map_style="carto-positron",
+    map_figure = go.Figure(
+        go.Scattermap(
+            lat=map_data["lat"],
+            lon=map_data["long"],
+            mode="markers",
+            marker={
+                "size": map_data["grave"].map({True: 11, False: 7}),
+                "color": map_data["grave"].map(
+                    {True: COLORS["coral"], False: COLORS["teal"]}
+                ),
+                "opacity": 0.8,
+            },
+            customdata=map_data[
+                [
+                    "commune",
+                    "niveau",
+                    "date_affichee",
+                    "heure_affichee",
+                    "catr_libelle",
+                    "lum_libelle",
+                    "atm_libelle",
+                ]
+            ].to_numpy(),
+            cluster={
+                "enabled": True,
+                "maxzoom": 13,
+                "color": "#174d63",
+            },
+            selected={"marker": {"size": 17, "opacity": 1}},
+            unselected={"marker": {"opacity": 0.38}},
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br><br>"
+                "<b>Gravité :</b> %{customdata[1]}<br>"
+                "<b>Date :</b> %{customdata[2]}<br>"
+                "<b>Heure :</b> %{customdata[3]}<br>"
+                "<b>Route :</b> %{customdata[4]}<br>"
+                "<b>Luminosité :</b> %{customdata[5]}<br>"
+                "<b>Météo :</b> %{customdata[6]}"
+                "<extra></extra>"
+            ),
+            hoverlabel=HOVER_STYLE,
+            name="Accidents",
+        )
     )
-    map_figure.update_traces(
-        marker={"size": 8, "opacity": 0.72},
-        hovertemplate=(
-            "<b>%{hovertext}</b><br><br>"
-            "<b>Gravité :</b> %{customdata[0]}<br>"
-            "<b>Date :</b> %{customdata[1]}<br>"
-            "<b>Heure :</b> %{customdata[2]}<br>"
-            "<b>Route :</b> %{customdata[3]}<br>"
-            "<b>Luminosité :</b> %{customdata[4]}<br>"
-            "<b>Météo :</b> %{customdata[5]}"
-            "<extra></extra>"
-        ),
-        hoverlabel={
-            "bgcolor": "#102033",
-            "bordercolor": "#00a8e8",
-            "font": {"family": "Inter, sans-serif", "size": 13, "color": "#f3f6fb"},
-            "align": "left",
-        },
+    map_figure.update_layout(
+        map={
+            "style": "carto-positron",
+            "center": center,
+            "zoom": MAP_INITIAL_ZOOM,
+        }
     )
+    selection_state = st.session_state.get("accident_map", {})
+    selection = (
+        selection_state.get("selection", {})
+        if isinstance(selection_state, dict)
+        else getattr(selection_state, "selection", {})
+    )
+    selected_points = (
+        selection.get("points", [])
+        if isinstance(selection, dict)
+        else getattr(selection, "points", [])
+    )
+    for point in selected_points:
+        if not isinstance(point, dict):
+            continue
+        latitude = point.get("lat")
+        longitude = point.get("lon")
+        if latitude is None or longitude is None:
+            continue
+        map_figure.add_trace(
+            go.Scattermap(
+                lat=[latitude],
+                lon=[longitude],
+                mode="markers",
+                marker={
+                    "size": 26,
+                    "color": "rgba(0, 168, 232, 0.35)",
+                    "symbol": "circle",
+                },
+                hoverinfo="skip",
+                showlegend=False,
+                name="Point sélectionné",
+            )
+        )
     map_figure.add_trace(
         go.Scattermap(
             lat=boundary_lat,
@@ -310,6 +372,8 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
         font=dict(color="#e7edf5"),
         showlegend=False,
         map={"center": center, "zoom": MAP_INITIAL_ZOOM, "bearing": 0, "pitch": 0},
+        transition={"duration": 260, "easing": "cubic-out"},
+        uirevision="accidents-map",
     )
 
     cities = municipality_data.head(12).sort_values("graves")
@@ -319,20 +383,36 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
         y="commune",
         orientation="h",
         text="graves",
-        hover_data={"accidents": True, "part_grave": ":.1%", "graves": True},
         color="graves",
-        color_continuous_scale=["#245b68", COLORS["teal"]],
+        color_continuous_scale="cividis",
+        title=(
+            f"{municipality_data.iloc[0]['commune']} : "
+            f"{int(municipality_data.iloc[0]['graves'])} accidents graves "
+            f"({int(municipality_data.iloc[0]['accidents'])} accidents)"
+        ),
         labels={"graves": "Accidents graves", "commune": ""},
     )
     city_figure.update_layout(coloraxis_showscale=False)
-    city_figure.update_traces(textposition="outside", cliponaxis=False)
+    city_figure.update_traces(
+        textposition="outside",
+        cliponaxis=False,
+        customdata=cities[["accidents", "part_grave"]].to_numpy(),
+        hovertemplate=(
+            "<b>%{y}</b><br>Accidents graves : %{x:.0f}<br>"
+            "Tous accidents : %{customdata[0]:.0f}<br>"
+            "Part grave : %{customdata[1]:.1%}<extra></extra>"
+        ),
+    )
     plotly_layout(city_figure, height=520)
     city_figure.update_layout(margin=dict(l=12, r=12, t=0, b=14))
 
     left, right = st.columns([1.25, 1], gap="large")
     with left:
         st.markdown("#### Accidents géolocalisés")
-        st.caption("Limite départementale du Loiret · carte simplifiée")
+        st.caption(
+            "Clusters au faible zoom, points individuels en zoomant · "
+            "cliquez sur un accident pour le mettre en évidence."
+        )
         st.markdown(
             '<div class="map-legend">'
             '<span><i class="map-legend-dot map-legend-severe"></i>Accident grave</span>'
@@ -341,11 +421,28 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
             "</div>",
             unsafe_allow_html=True,
         )
-        st.plotly_chart(map_figure, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(
+            map_figure,
+            width="stretch",
+            config={"displayModeBar": False},
+            key="accident_map",
+            on_select="rerun",
+            selection_mode="points",
+            alt=(
+                "Carte des accidents corporels du Loiret. Les accidents sont regroupés "
+                "en clusters à faible zoom et se séparent en zoomant. Taille et couleur "
+                "distinguent les accidents graves des autres."
+            ),
+        )
     with right:
         st.markdown("#### Top communes")
         st.caption("12 communes · accidents graves selon les filtres choisis.")
-        st.plotly_chart(city_figure, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(
+            city_figure,
+            width="stretch",
+            config={"displayModeBar": False},
+            alt="Classement des douze communes ayant le plus d’accidents graves.",
+        )
 
     st.markdown("#### Explorer les accidents d'une commune")
     city_options = municipality_data["commune"].tolist()
@@ -408,14 +505,23 @@ def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
         .reindex(index=DAY_NAMES, columns=range(24))
         .fillna(0)
     )
+    accident_matrix = (
+        weekly.pivot(index="jour_nom", columns="heure", values="accidents")
+        .reindex(index=DAY_NAMES, columns=range(24))
+        .fillna(0)
+    )
     heatmap = go.Figure(
         data=go.Heatmap(
             z=matrix.values,
             x=[f"{hour:02d} h" for hour in matrix.columns],
             y=matrix.index,
-            colorscale=[[0, "#162338"], [0.55, "#287d83"], [1, COLORS["coral"]]],
+            colorscale="Cividis",
             colorbar=dict(title="Accidents<br>graves"),
-            hovertemplate="%{y} · %{x}<br>%{z:.0f} accident(s) grave(s)<extra></extra>",
+            customdata=accident_matrix.values[..., None],
+            hovertemplate=(
+                "<b>%{y} · %{x}</b><br>Accidents graves : %{z:.0f}<br>"
+                "Tous accidents : %{customdata[0]:.0f}<extra></extra>"
+            ),
         )
     )
     busiest_hour = int(
@@ -433,19 +539,27 @@ def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
         yaxis_title="Jour de la semaine",
     )
     plotly_layout(heatmap, height=380)
-    st.plotly_chart(heatmap, width="stretch", config={"displayModeBar": False})
+    st.plotly_chart(
+        heatmap,
+        width="stretch",
+        config={"displayModeBar": False},
+        alt=(
+            "Carte de chaleur des accidents graves par jour de la semaine et heure, "
+            "avec le nombre total d’accidents dans chaque case."
+        ),
+    )
 
     weather = pd.DataFrame(dashboard["weather"])
     lighting = pd.DataFrame(dashboard["lighting"])
     roads = pd.DataFrame(dashboard["roads"])
     left, right = st.columns(2, gap="large")
     for container, result, category, title, threshold in (
-        (left, weather, "atm_libelle", "Part grave observée selon la météo", "n ≥ 20"),
+        (left, weather, "atm_libelle", "Météo", "catégories avec au moins 20 accidents"),
         (
             right,
             lighting,
             "periode_luminosite",
-            "Part grave observée selon la luminosité",
+            "Période de luminosité",
             "effectif affiché",
         ),
     ):
@@ -453,18 +567,19 @@ def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
             if result.empty:
                 st.info("Pas assez d'observations pour comparer ces catégories.")
                 continue
+            leading = result.iloc[0]
             chart = px.bar(
                 result,
                 x="part_grave",
                 y=category,
                 orientation="h",
                 text=result["part_grave"].map(lambda value: f"{value:.0%}"),
-                hover_data={"accidents": True, "graves": True, "part_grave": ":.1%"},
                 color="part_grave",
-                color_continuous_scale=["#245b68", COLORS["coral"]],
+                color_continuous_scale="cividis",
                 title=(
-                    f"{title} · n={int(result['accidents'].sum())} "
-                    f"({threshold})"
+                    f"{title} : {leading[category]} · "
+                    f"{leading['part_grave']:.1%} ({int(leading['graves'])}/"
+                    f"{int(leading['accidents'])} accidents)"
                 ),
                 labels={
                     "part_grave": "Part d'accidents graves",
@@ -473,10 +588,24 @@ def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
                     category: "",
                 },
             )
+            chart.update_traces(
+                customdata=result[["accidents", "graves"]].to_numpy(),
+                hovertemplate=(
+                    "<b>%{y}</b><br>Part grave : %{x:.1%}<br>"
+                    "Accidents graves : %{customdata[1]:.0f}<br>"
+                    "Tous accidents : %{customdata[0]:.0f}<extra></extra>"
+                ),
+            )
             chart.update_layout(coloraxis_showscale=False, xaxis_tickformat=".0%")
             chart.update_traces(textposition="outside", cliponaxis=False)
             plotly_layout(chart, height=max(300, 58 * len(result) + 100))
-            st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
+            st.caption(f"Comparaison descriptive · {threshold}.")
+            st.plotly_chart(
+                chart,
+                width="stretch",
+                config={"displayModeBar": False},
+                alt=f"Comparaison de la part d’accidents graves selon {title.lower()}.",
+            )
 
     if "Nuit (tous éclairages)" in lighting["periode_luminosite"].values and (
         "Plein jour" in lighting["periode_luminosite"].values
@@ -495,18 +624,19 @@ def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
     st.markdown("#### La nuit est-elle plus grave ?")
     st.caption(lighting_message)
     if not roads.empty:
+        leading_road = roads.iloc[0]
         road_chart = px.bar(
             roads,
             x="part_grave",
             y="catr_libelle",
             orientation="h",
             text=roads["part_grave"].map(lambda value: f"{value:.0%}"),
-            hover_data={"accidents": True, "graves": True, "part_grave": ":.1%"},
             color="part_grave",
-            color_continuous_scale=["#245b68", COLORS["coral"]],
+            color_continuous_scale="cividis",
             title=(
-                "Part grave observée selon le type de route · "
-                f"n={int(roads['accidents'].sum())} (catégories avec ≥20 cas)"
+                f"Route avec la part grave la plus élevée : "
+                f"{leading_road['catr_libelle']} · {leading_road['part_grave']:.1%} "
+                f"({int(leading_road['graves'])}/{int(leading_road['accidents'])} accidents)"
             ),
             labels={
                 "part_grave": "Part d'accidents graves",
@@ -515,10 +645,23 @@ def render_planning(data: pd.DataFrame, dashboard: dict[str, Any]) -> None:
                 "catr_libelle": "",
             },
         )
+        road_chart.update_traces(
+            customdata=roads[["accidents", "graves"]].to_numpy(),
+            hovertemplate=(
+                "<b>%{y}</b><br>Part grave : %{x:.1%}<br>"
+                "Accidents graves : %{customdata[1]:.0f}<br>"
+                "Tous accidents : %{customdata[0]:.0f}<extra></extra>"
+            ),
+        )
         road_chart.update_layout(coloraxis_showscale=False, xaxis_tickformat=".0%")
         road_chart.update_traces(textposition="outside", cliponaxis=False)
         plotly_layout(road_chart, height=max(300, 58 * len(roads) + 100))
-        st.plotly_chart(road_chart, width="stretch", config={"displayModeBar": False})
+        st.plotly_chart(
+            road_chart,
+            width="stretch",
+            config={"displayModeBar": False},
+            alt="Part d’accidents graves comparée selon le type de route.",
+        )
     st.markdown(
         '<div class="note">Une part plus élevée ne signifie pas que la météo, la luminosité '
         'ou la route cause l’accident : ces données recensent uniquement les accidents '
@@ -650,21 +793,34 @@ def render_scenario(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
         error_x="ecart_type",
         color="importance_moyenne",
         color_continuous_scale=["#76a9fa", COLORS["teal"]],
-        title=f"Variables les plus utiles au classement · test {metrics['annee_test']}",
+        title=f"Importance des variables · test {metrics['annee_test']}",
         labels={
             "importance_moyenne": "Baisse moyenne de l'AUC",
             "parametre": "",
             "ecart_type": "Écart-type",
         },
     )
+    importance_figure.update_traces(
+        customdata=importance[["ecart_type"]].to_numpy(),
+        hovertemplate=(
+            "<b>%{y}</b><br>Baisse de l'AUC : %{x:.2%}<br>"
+            "Écart-type : %{customdata[0]:.2%}<extra></extra>"
+        ),
+    )
     importance_figure.update_layout(
         coloraxis_showscale=False,
         xaxis_tickformat=".1%",
-        xaxis_title="Baisse de l'AUC après permutation (points de %)",
+        xaxis_title="Baisse moyenne de l'AUC (%)",
     )
     plotly_layout(importance_figure, height=390)
     st.plotly_chart(
-        importance_figure, width="stretch", config={"displayModeBar": False}
+        importance_figure,
+        width="stretch",
+        config={"displayModeBar": False},
+        alt=(
+            "Importance des paramètres du modèle, classés selon la baisse moyenne "
+            "de l’AUC observée après permutation sur l’année de test."
+        ),
     )
     st.caption(
         "Importance par permutation mesurée sur l'année de test : plus la baisse moyenne "

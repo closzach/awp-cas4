@@ -268,13 +268,23 @@ son chemin si le dépôt est installé ailleurs.
 
 ## Correspondance avec le barème
 
-| Attendu | Réponse dans le projet |
+| Critère | État dans le projet et prochaine vérification |
 |---|---|
-| En ligne et fonctionnelle | App Streamlit et instructions de publication ci-dessus |
-| Interactivité | 3 filtres partagés, choix d'une commune et tableau de détail |
-| Pertinence métier | Décision explicite et réponses aux quatre questions du cas |
-| Lisibilité / accessibilité | Interface responsive, titres-conclusions, légendes textuelles et effectifs |
-| Couche ML | Score de scénario et métriques sur l'année tenue à l'écart |
-| Qualité du code | Calculs séparés, cache et tests ciblés |
-| Framework / soutenance | Streamlit justifié, explications et rôles proposés |
-| Version intermédiaire / retours | À compléter par le groupe après la démo intermédiaire |
+| En ligne et fonctionnelle (2 pts) | Streamlit, FastAPI et un workflow de déploiement sont documentés. Ajouter l'URL publique ici et la tester pendant la soutenance ; une URL absente coûte les 2 points. |
+| Interactivité (2 pts) | Période, communes et routes filtrent les vues ; un choix de commune affiche son détail. Démontrer que les filtres mettent tous les graphiques à jour et que les indicateurs restent cohérents. |
+| Pertinence métier (3 pts) | La décision et les quatre questions du cas 4 sont explicites. Les titres des graphiques mettent en avant les résultats et les effectifs ; les constats restent descriptifs, sans prétendre mesurer un risque ou une causalité. |
+| Lisibilité / accessibilité (2 pts) | La carte regroupe les points à faible zoom ; couleur et taille encodent la gravité. La palette catégorielle suit Okabe–Ito, les échelles utilisent Cividis, les infobulles sont harmonisées et les graphiques ont un texte alternatif. Tester encore sur téléphone et vérifier le déploiement réel. |
+| Couche ML ou LLM (1 pt) | La forêt aléatoire est évaluée sur une année tenue à l'écart ; métriques et importance par permutation sont affichées. L'importance explique le classement du modèle, pas les causes d'accident. |
+| Qualité du code (1 pt) | Calculs et affichage sont séparés, les réponses API sont mises en cache, des tests existent et Ruff est utilisé. |
+| Framework / soutenance (1 pt) | Streamlit est motivé par le tableau de bord Python et FastAPI par la séparation des données et de l'interface. Chaque membre doit pouvoir expliquer le code. |
+| Version intermédiaire et retours (4 pts) | À compléter avec la démo de 11 h 55 : retours réellement reçus, décisions prises et changements montrés à la soutenance. Le code seul ne permet pas de valider ces points. |
+| Participation (4 pts par personne) | À valider par la présence et la participation effective de chaque membre les deux jours ; ce critère ne se déduit pas du dépôt. |
+
+**URL publique :** à renseigner avant la soutenance.
+
+**Assistant de code :** Copilot SDK, utilisé pour cette itération afin d'analyser le barème,
+d'améliorer la carte et les infobulles, puis de vérifier les changements. Les membres du groupe
+doivent pouvoir expliquer et défendre ces choix.
+
+Le backend FastAPI est séparé du frontend Streamlit : cette architecture correspond au point de
+bonus prévu par le barème, sous réserve de présenter une version en ligne fonctionnelle.
