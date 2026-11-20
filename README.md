@@ -103,6 +103,10 @@ millésime de test.
 
 La carte et les graphiques sont descriptifs ; seul l'onglet scénario utilise le modèle. Cette
 séparation évite de présenter une association observée comme une prédiction.
+L'onglet scénario présente aussi l'importance par permutation des variables, calculée sur
+l'année de test : elle indique quelles variables aident le modèle à classer les accidents graves,
+pas quelles sont les causes des accidents. Des variables corrélées peuvent se partager cette
+importance.
 
 ## Architecture
 

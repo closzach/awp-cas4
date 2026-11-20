@@ -9,6 +9,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -103,6 +104,28 @@ def train_and_evaluate(data: pd.DataFrame) -> tuple[Pipeline, dict[str, Any]]:
         "f1": float(f1_score(test_target, predictions, zero_division=0)),
         "exactitude_baseline": float(accuracy_score(test_target, baseline_predictions)),
     }
+    importance = permutation_importance(
+        evaluation_model,
+        test_features,
+        test_target,
+        scoring="roc_auc",
+        n_repeats=5,
+        random_state=42,
+        n_jobs=1,
+    )
+    metrics["importance_variables"] = [
+        {
+            "parametre": feature,
+            "importance_moyenne": float(mean),
+            "ecart_type": float(std),
+        }
+        for feature, mean, std in zip(
+            MODEL_FEATURES,
+            importance.importances_mean,
+            importance.importances_std,
+            strict=True,
+        )
+    ]
 
     deployed_model = _new_pipeline()
     deployed_model.fit(build_feature_frame(data), data["grave"].astype(bool))
