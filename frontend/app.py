@@ -220,7 +220,7 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
         },
         zoom=7,
         center=center,
-        map_style="open-street-map",
+        map_style="carto-positron",
         title=(
             f"{total:,} accidents géolocalisés · rouge = grave, turquoise = autre"
         ).replace(",", " "),
