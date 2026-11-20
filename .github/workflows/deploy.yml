@@ -25,5 +25,4 @@ jobs:
             .venv/bin/python -m pip install --upgrade -r requirements-backend.txt -r requirements-frontend.txt
             sudo systemctl restart vigie-backend
             sudo systemctl restart vigie-frontend
-            sleep 2
-            curl -fsS http://127.0.0.1:8000/health
+            curl --retry 15 --retry-delay 1 --retry-connrefused -fsS http://127.0.0.1:8000/health
