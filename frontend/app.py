@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -40,11 +41,13 @@ MONTH_NAMES = [
 COLORS = {
     "background": "#0b1220",
     "panel": "#121d2e",
-    "teal": "#5fe1c2",
-    "coral": "#ff756d",
+    "teal": "#1261a0",
+    "coral": "#d7263d",
     "blue": "#76a9fa",
+    "boundary": "#b45309",
     "muted": "#a7b3c5",
 }
+MAP_INITIAL_ZOOM = 6.8
 
 
 def fetch_api(path: str, params: list[tuple[str, str]] | None = None) -> dict[str, Any]:
@@ -93,6 +96,7 @@ st.markdown(
         --panel: #121d2e;
         --line: rgba(167, 179, 197, .16);
         --mint: #5fe1c2;
+        --map-boundary: #b45309;
     }
     .stApp { background: #0b1220; color: var(--ink); }
     [data-testid="stHeader"] { background: rgba(11, 18, 32, .88); }
@@ -123,6 +127,22 @@ st.markdown(
         border-left: 3px solid var(--mint); background: var(--panel);
         padding: 12px 16px; border-radius: 0 10px 10px 0;
         color: var(--muted); font-size: .92rem;
+    }
+    .map-legend {
+        display: flex; flex-wrap: wrap; align-items: center;
+        gap: .45rem 1rem; margin: 0 0 .45rem;
+        color: #d5deeb; font-size: .78rem;
+    }
+    .map-legend span { display: inline-flex; align-items: center; gap: .4rem; }
+    .map-legend-dot {
+        display: inline-block; width: .58rem; height: .58rem;
+        border-radius: 50%; box-shadow: 0 0 0 2px var(--panel);
+    }
+    .map-legend-severe { background: #d7263d; }
+    .map-legend-other { background: #1261a0; }
+    .map-legend-line {
+        display: inline-block; width: 1rem;
+        border-top: 2px solid var(--map-boundary);
     }
     div[data-testid="stTabs"] button { font-weight: 650; }
     @media (max-width: 640px) {
@@ -191,13 +211,46 @@ def plotly_layout(figure: go.Figure, height: int = 390) -> go.Figure:
     return figure
 
 
+@st.cache_data
+def load_map_boundary() -> dict[str, Any]:
+    boundary_path = Path(__file__).parent / "data" / "loiret-boundary.geojson"
+    return json.loads(boundary_path.read_text(encoding="utf-8"))
+
+
 def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None:
-    total = len(data)
     map_data = data.copy()
     map_data["niveau"] = map_data["grave"].map(
         {True: "Grave", False: "Sans hospitalisation ni décès"}
     )
-    center = {"lat": float(map_data["lat"].median()), "lon": float(map_data["long"].median())}
+    map_data["date_affichee"] = (
+        pd.to_datetime(map_data["date"], errors="coerce")
+        .dt.strftime("%d/%m/%Y")
+        .fillna("Non renseignée")
+    )
+    map_data["heure_affichee"] = pd.to_numeric(
+        map_data["heure"], errors="coerce"
+    ).map(lambda value: f"{int(value):02d} h" if pd.notna(value) else "Non renseignée")
+    for column in ("catr_libelle", "lum_libelle", "atm_libelle"):
+        map_data[column] = map_data[column].fillna("Non renseigné")
+
+    boundary = load_map_boundary()
+    west, south, east, north = boundary["bbox"]
+    center = {"lat": (south + north) / 2, "lon": (west + east) / 2}
+    boundary_geometry = boundary["features"][0]["geometry"]
+    polygons = (
+        boundary_geometry["coordinates"]
+        if boundary_geometry["type"] == "MultiPolygon"
+        else [boundary_geometry["coordinates"]]
+    )
+    boundary_lat: list[float | None] = []
+    boundary_lon: list[float | None] = []
+    for polygon in polygons:
+        for ring in polygon:
+            boundary_lon.extend(point[0] for point in ring)
+            boundary_lat.extend(point[1] for point in ring)
+            boundary_lon.append(None)
+            boundary_lat.append(None)
+
     map_figure = px.scatter_map(
         map_data,
         lat="lat",
@@ -208,36 +261,58 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
             "Sans hospitalisation ni décès": COLORS["teal"],
         },
         hover_name="commune",
-        hover_data={
-            "date": True,
-            "heure": True,
-            "catr_libelle": True,
-            "lum_libelle": True,
-            "atm_libelle": True,
-            "lat": False,
-            "long": False,
-            "niveau": True,
-        },
-        zoom=7,
+        custom_data=[
+            "niveau",
+            "date_affichee",
+            "heure_affichee",
+            "catr_libelle",
+            "lum_libelle",
+            "atm_libelle",
+        ],
+        zoom=MAP_INITIAL_ZOOM,
         center=center,
         map_style="carto-positron",
-        title=(
-            f"{total:,} accidents géolocalisés · rouge = grave, turquoise = autre"
-        ).replace(",", " "),
+    )
+    map_figure.update_traces(
+        marker={"size": 8, "opacity": 0.72},
+        hovertemplate=(
+            "<b>%{hovertext}</b><br><br>"
+            "<b>Gravité :</b> %{customdata[0]}<br>"
+            "<b>Date :</b> %{customdata[1]}<br>"
+            "<b>Heure :</b> %{customdata[2]}<br>"
+            "<b>Route :</b> %{customdata[3]}<br>"
+            "<b>Luminosité :</b> %{customdata[4]}<br>"
+            "<b>Météo :</b> %{customdata[5]}"
+            "<extra></extra>"
+        ),
+        hoverlabel={
+            "bgcolor": "#102033",
+            "bordercolor": "#00a8e8",
+            "font": {"family": "Inter, sans-serif", "size": 13, "color": "#f3f6fb"},
+            "align": "left",
+        },
+    )
+    map_figure.add_trace(
+        go.Scattermap(
+            lat=boundary_lat,
+            lon=boundary_lon,
+            mode="lines",
+            line={"color": COLORS["boundary"], "width": 2.5},
+            hoverinfo="skip",
+            showlegend=False,
+            name="Contour du Loiret",
+        )
     )
     map_figure.update_layout(
-        height=470,
-        margin=dict(l=0, r=0, t=52, b=0),
+        height=520,
+        margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor=COLORS["panel"],
         font=dict(color="#e7edf5"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0),
+        showlegend=False,
+        map={"center": center, "zoom": MAP_INITIAL_ZOOM, "bearing": 0, "pitch": 0},
     )
 
     cities = municipality_data.head(12).sort_values("graves")
-    city_title = (
-        f"Les 12 communes avec le plus d'accidents graves · {total:,} accidents analysés"
-        .replace(",", " ")
-    )
     city_figure = px.bar(
         cities,
         x="graves",
@@ -247,17 +322,29 @@ def render_overview(data: pd.DataFrame, municipality_data: pd.DataFrame) -> None
         hover_data={"accidents": True, "part_grave": ":.1%", "graves": True},
         color="graves",
         color_continuous_scale=["#245b68", COLORS["teal"]],
-        title=city_title,
         labels={"graves": "Accidents graves", "commune": ""},
     )
     city_figure.update_layout(coloraxis_showscale=False)
     city_figure.update_traces(textposition="outside", cliponaxis=False)
-    plotly_layout(city_figure, height=470)
+    plotly_layout(city_figure, height=520)
+    city_figure.update_layout(margin=dict(l=12, r=12, t=0, b=14))
 
     left, right = st.columns([1.25, 1], gap="large")
     with left:
+        st.markdown("#### Accidents géolocalisés")
+        st.caption("Limite départementale du Loiret · carte simplifiée")
+        st.markdown(
+            '<div class="map-legend">'
+            '<span><i class="map-legend-dot map-legend-severe"></i>Accident grave</span>'
+            '<span><i class="map-legend-dot map-legend-other"></i>Autre accident</span>'
+            '<span><i class="map-legend-line"></i>Limite du Loiret</span>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.plotly_chart(map_figure, width="stretch", config={"displayModeBar": False})
     with right:
+        st.markdown("#### Top communes")
+        st.caption("12 communes · accidents graves selon les filtres choisis.")
         st.plotly_chart(city_figure, width="stretch", config={"displayModeBar": False})
 
     st.markdown("#### Explorer les accidents d'une commune")

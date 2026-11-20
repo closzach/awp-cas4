@@ -63,6 +63,10 @@ par HTTP ; il ne charge plus directement le fichier Parquet ni le modèle.
 ## Données et précautions
 
 - **Source :** fichier BAAC / ONISR fourni pour le projet, sous Licence Ouverte.
+- **Contour cartographique :** limites communales de l’API officielle
+  [geo.api.gouv.fr](https://geo.api.gouv.fr/), dissoutes et simplifiées pour tracer le Loiret
+  (`frontend/data/loiret-boundary.geojson`). Le fond de carte CARTO et ses crédits restent
+  visibles dans l’interface.
 - **Périmètre :** 3 242 accidents corporels, dans le Loiret, de 2019 à 2025 inclus.
 - Une ligne représente un accident ; elle ne représente ni le trafic, ni une exposition au risque.
 - Un accident est dit **grave** ici s'il a entraîné au moins un hospitalisé ou un décès
